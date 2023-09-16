@@ -1,8 +1,7 @@
 package SWEA_모든페어찾기;
 
+import java.util.ArrayDeque;
 import java.util.HashSet;
-
-//import static SWEA_모든페어찾기.Solution.checkCards;
 
 /**
  * 풀이 시작 : 3:29
@@ -59,29 +58,35 @@ import java.util.HashSet;
 public class UserSolution {
     // checkList[0] = true, checkList[1] = false
     // checkList[1][i] = range[i]로 checkCards() 수행했을 때 false가 된 친구들
-    static HashSet<Integer>[][] checkList = new HashSet[2][17];
-    static int cnt;
-    static int[] range = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
-    static int[] temp = new int[4]; // 임시로 저장할 배열
+    static HashSet<Integer>[][] checkList = new HashSet[2][24];
+    static int[] range;
+    static int[] temp = new int[6]; // 임시로 저장할 배열
+
     public UserSolution() {
         for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < 17; j++) {
+            for (int j = 0; j < checkList[0].length; j++) {
                 checkList[i][j] = new HashSet<>();
             }
         }
     }
 
     void playGame(int N) {
-        int maxLength = N;
         int numOfCards = N << 1;
-        cnt = 0;
 
-        for (int i = 0; i < range.length; i++) {
-            if (range[i] >= N) break;
-            maxLength = i;
+        int rangeNum = (N + 1) / 2;
+        ArrayDeque<Integer> stack = new ArrayDeque<>();
+
+        while (rangeNum != 0) {
+            stack.push(rangeNum);
+            rangeNum = (int) ((double) rangeNum * 0.66); // 이거 대체 최적값이 뭔지 모르겠다
+        }
+        range = new int[stack.size() + 1];
+        for (int i = 1; i < range.length; i++) {
+            range[i] = stack.pop();
         }
 
-        int nowRangeIdx = maxLength;
+
+        int nowRangeIdx = range.length - 1;
 
         for (int i = 1; i < numOfCards; i++) {
             if (Solution.checkCards(0, i, range[nowRangeIdx])) {
@@ -102,16 +107,14 @@ public class UserSolution {
             HashSet<Integer> trueSet = checkList[0][nowRangeIdx];
             int idx = 0;
             for (int value : trueSet) {
-                if (Solution.checkCards(standardIdx, value, 0)) {
-                } else {
+                if (!Solution.checkCards(standardIdx, value, 0)) {
                     temp[idx++] = value; // 페어가 아닌 4개 중 하나
                 }
             }
 
-            if (idx == 2) {
+            if (idx == 2) { // 차이 1나는게 한쪽만 있는 경우
                 Solution.checkCards(temp[0], temp[1], 0);
-                cnt++;
-            } else if (idx == 4) {
+            } else if (idx == 4) { // 차이 1나는게 두쪽 다 있는 경우
                 for (int i = 0; i < 3; i++) {
                     for (int j = i + 1; j < 4; j++) {
                         Solution.checkCards(temp[i], temp[j], 0);
@@ -119,26 +122,31 @@ public class UserSolution {
                 }
             }
             checkList[0][0].clear();
-            // checkList[1][0] = 답 +- 2인 애들이 들어 있음
+
+            // 얘네는 무조건 6개 이하임
+            // 기존 범위의 0.66씩 곱하는데 최대가 3이라서 양쪽 다해도 6개가 끝
             HashSet<Integer> falseSet = checkList[1][0];
-            for (int a : falseSet) {
-                for (int b : falseSet) {
-                    if (a == b) continue;
-                    Solution.checkCards(a, b, 0);
+            idx = 0;
+            for (int value : falseSet) {
+                temp[idx++] = value;
+            }
+
+            for (int i = 0; i < idx - 1; i++) {
+                for (int j = i + 1; j < idx; j++) {
+                    Solution.checkCards(temp[i], temp[j], 0);
                 }
             }
             checkList[1][0].clear();
             return;
         }
 
-
         // 일단 range 안에 있는 애들을 또 range 줄여서 분류
         int halfRangeIdx = nowRangeIdx - 1;
         for (int value : checkList[0][nowRangeIdx]) {
             if (Solution.checkCards(standardIdx, value, range[halfRangeIdx])) {
-                checkList[0][halfRangeIdx].add(value); // 절반 범위에도 속했다면 그 아래에 저장
+                checkList[0][halfRangeIdx].add(value); // 범위에 속했다면 그 아래에 저장
             } else {
-                checkList[1][halfRangeIdx].add(value); // 절반 범위에 속하지 않았다면 다른 곳 저장
+                checkList[1][halfRangeIdx].add(value); // 범위에 속하지 않았다면 다른 곳 저장
             }
         }
         checkList[0][nowRangeIdx].clear(); // 현재 위치는 모두 분류 완료했으므로 clear시킴
@@ -160,7 +168,6 @@ public class UserSolution {
             // 그렇게 하려면 주소를 현재 이걸 바라보게 해야 함
             checkList[0][nowRangeIdx] = nowSet;
             checkList[1][nowRangeIdx] = new HashSet<>();
-
             makePair(falseStandardIdx, nowRangeIdx);
         }
     }
