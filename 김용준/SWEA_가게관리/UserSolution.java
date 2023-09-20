@@ -2,6 +2,7 @@ package SWEA_가게관리;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.PriorityQueue;
 
 /**
  * 풀이 시작 : 9:56
@@ -64,27 +65,48 @@ import java.util.HashSet;
  *
  */
 class UserSolution {
-	static int productIdx, poolIdx; // 현재 가진 상품 종류
+	static int productIdx, bIdIdx, sIdIdx; // 현재 가진 상품 종류, 현재 나온 bId 개수, 현재 나온 sId 개수
 	static HashMap<Integer, Integer> productNumToIdx = new HashMap<>(900); // mProduct -> numOfProducts 인덱스로 변환
-	static HashMap<Integer, Integer> bIdToIdx = new HashMap<>(45000); // bId -> receiptPool의 인덱스로 변환
-//	static HashMap<Integer, Integer> sIdToIdx = new HashMap<>(45000);
+	static HashMap<Integer, Integer> bIdToIdx = new HashMap<>(45000); // bId -> buyReceiptPool의 인덱스로 변환
+	static HashMap<Integer, Integer> sIdToIdx = new HashMap<>(45000); // sId -> sellReceipts의 인덱스로 변환
 	static HashSet<Integer>[] bIdInProduct = new HashSet[600]; // 각 mProduct에 해당하는 구매 내역
+	static HashMap<Integer, Integer> sIdToProduct = new HashMap<>(); // sId -> numOfProducts 인덱스로 변환
 	static int[] numOfProducts = new int[600]; // 상품 종류별로 총 갯수
-	static Receipt[] receiptPool = new Receipt[30000];
+	static BuyReceipt[] buyReceiptPool = new BuyReceipt[30000]; // 메모리풀
+	static SellReceipt[] sellReceipts = new SellReceipt[30000]; // 링크드리스트 배열
+	static PriorityQueue<BuyReceipt> pq = new PriorityQueue<>(); // sell때 필요한 우선순위큐
 
-	public UserSolution() {
+	public UserSolution() { // 가장 처음 한 번만 하면 되는 작업들
 		for (int i = 0; i < 30000; i++) {
-			receiptPool[i] = new Receipt(); // 메모리 풀
+			buyReceiptPool[i] = new BuyReceipt(); // 객체 생성해놓음
 		}
 
 		for (int i = 0; i < 600; i++) {
-			bIdInProduct[i] = new HashSet<>(); // pId 값이 들어있는 set
+			bIdInProduct[i] = new HashSet<>(); // 상품당 가진 bId set 메모리에 올림
 		}
 	}
 
-	static class Receipt { // 구매 정보 저장할 클래스
-		int buyAmount, curAmount, price;
+	static class BuyReceipt implements Comparable<BuyReceipt> { // 구매 정보 저장할 클래스
+		int buyAmount, curAmount, price, bId;
+
+		public int compareTo(BuyReceipt o) {
+			if (this.price == o.price) return this.bId - o.bId;
+			return this.price - o.price;
+		}
+
 	}
+
+	static class SellReceipt { // 판매 정보
+		int buyReceiptIdx, amount; // 현재 bId에서 얼만큼 샀는지
+		SellReceipt next;
+
+		public SellReceipt(int buyReceiptIdx, int amount, SellReceipt next) {
+			this.buyReceiptIdx = buyReceiptIdx;
+			this.amount = amount;
+			this.next = next;
+		}
+	}
+
 
 	public void init() {
 		// 이전에 쓴 만큼 다시 초기값 할당
@@ -94,9 +116,16 @@ class UserSolution {
 			numOfProducts[i] = 0;
 		}
 
+		for (int i = 0; i < sIdIdx; i++) {
+			sellReceipts[i] = null;
+		}
+
 		productNumToIdx.clear(); // 값 초기화
 		bIdToIdx.clear(); // 값 초기화
-		poolIdx = 0; // 재활용
+		sIdToIdx.clear();
+		sIdToProduct.clear();
+		bIdIdx = 0; // 재활용
+		sIdIdx = 0;
 		productIdx = 0; // 재활용
 	}
 
@@ -107,26 +136,86 @@ class UserSolution {
 
 		int nowProductIdx = productNumToIdx.get(mProduct);
 
-		Receipt nowReceipt = receiptPool[poolIdx]; // 메모리풀에서 하나 꺼내서 현재 정보 저장
-		bIdToIdx.put(bId, poolIdx); // bId -> 메모리 풀의 인덱스 변환값이 저장된 set
-		nowReceipt.buyAmount = nowReceipt.curAmount = mQuantity; // 구매 정보 저장
-		nowReceipt.price = mPrice; // 구매 정보 저장
+		BuyReceipt nowBuyReceipt = buyReceiptPool[bIdIdx]; // 메모리풀에서 하나 꺼내서 현재 정보 저장
+		bIdToIdx.put(bId, bIdIdx); // bId -> 메모리 풀의 인덱스 변환값이 저장된 set
+		nowBuyReceipt.buyAmount = nowBuyReceipt.curAmount = mQuantity; // 구매 정보 저장
+		nowBuyReceipt.price = mPrice; // 구매 정보 저장
+		nowBuyReceipt.bId = bId; // 구매 정보 저장
 
-		bIdInProduct[nowProductIdx].add(poolIdx++); // bIdInProduct[mProduct->배열인덱스] 에다가 현재 bId의 변환된 인덱스 저장
+		bIdInProduct[nowProductIdx].add(bIdIdx++); // bIdInProduct[mProduct->배열인덱스] 에다가 현재 bId의 변환된 인덱스 저장
 		numOfProducts[nowProductIdx] += mQuantity;
-		System.out.println("상품코드"+mProduct+" 개수 : "+numOfProducts[nowProductIdx]);
 		return numOfProducts[nowProductIdx];
 	}
 
 	public int cancel(int bId) {
-		return 0;
+		int idx = bIdToIdx.getOrDefault(bId, -1); // bId가 없거나 이미 취소한 경우면 -1
+		if (idx == -1) {
+			return -1;
+		}
+		BuyReceipt now = buyReceiptPool[idx]; // 취소할 구매 내역
+
+		if (now.curAmount == now.buyAmount) { // 재고가 그대로 있다면
+			for (int i = 0; i < productIdx; i++) { // 상품 목록에서 탐색해서 무슨 상품인지 찾음
+				if (bIdInProduct[i].contains(idx)) { // 무슨 상품에 속했는지 찾았다면
+					numOfProducts[i] -= now.curAmount; // 그 상품 재고 줄여줌
+					bIdInProduct[i].remove(idx); // 상품에서 이번 구매 내역 삭제
+					return numOfProducts[i]; // 남은 상품 재고 리턴
+				}
+			}
+		}
+
+		return -1;
 	}
 
 	public int sell(int sId, int mProduct, int mPrice, int mQuantity) {
-		return 0;
+		if (!productNumToIdx.containsKey(mProduct)) return -1; // 판매할 상품이 구매한 적 없다면 -1 리턴
+		int nowProductIdx = productNumToIdx.get(mProduct); // 상품 배열 인덱스
+		if (numOfProducts[nowProductIdx] < mQuantity) return -1; // 상품의 총 개수가 판매해야 하는 수량보다 적다면 -1 리턴
+		int sIdx = sIdIdx; // 링크드리스트 배열의 인덱스
+		sIdToIdx.put(sId, sIdIdx++); // sId -> 배열 인덱스로 변환하는 맵에 추가
+		sIdToProduct.put(sId, productNumToIdx.get(mProduct)); // sId -> 상품 배열 인덱스를 찾는 맵에 추가
+		pq.clear(); // 우선순위 큐 비워줌
+		for (int bIdx : bIdInProduct[nowProductIdx]) { // 판매하려는 상품에 들어 있는 모든 구매 내역
+			if (buyReceiptPool[bIdx].curAmount == 0) continue; // 현재 재고가 0이라면 continue
+			pq.offer(buyReceiptPool[bIdx]); // pq에 추가
+		}
+
+		int amount; // 각 bId에서 얼만큼 샀는지 저장할 변수
+		int totalIncome = 0; // 총 판매 수익
+
+		while (mQuantity > 0) {
+			BuyReceipt now = pq.poll();
+
+			if (now.curAmount >= mQuantity) { // 마지막 상품
+				totalIncome += (mPrice - now.price) * mQuantity;
+				amount = mQuantity;
+				now.curAmount -= mQuantity;
+				numOfProducts[nowProductIdx] -= mQuantity; // 재고에서 줄임
+				mQuantity = 0;
+			} else {
+				totalIncome += (mPrice - now.price) * now.curAmount;
+				amount = now.curAmount;
+				mQuantity -= now.curAmount;
+				numOfProducts[nowProductIdx] -= now.curAmount; // 재고에서 줄임
+				now.curAmount = 0;
+			}
+			sellReceipts[sIdx] = new SellReceipt(bIdToIdx.get(now.bId), amount, sellReceipts[sIdx]); // 이번 판매 상품을 구성하는 모든 bId들
+		}
+
+		return totalIncome;
 	}
 
 	public int refund(int sId) {
-		return 0;
+		if (!sIdToIdx.containsKey(sId)) return -1; // 판매 목록에 sId가 없으면 -1 리턴 (환불 후에는 여기서 삭제하므로 중복 환불도 판별)
+		int sIdx = sIdToIdx.get(sId); // sId -> 배열의 인덱스로 변환
+		sIdToIdx.remove(sId); // 판매 목록에서 삭제
+		int nowProductIdx = sIdToProduct.get(sId); // sId에서 구매한 제품 번호(배열 인덱스) 반환
+		int totalRefundAmount = 0; // 환불한 총 개수
+		for (SellReceipt s = sellReceipts[sIdx]; s != null; s = s.next) { // 링크드리스트로 sId로 판매한 상품들 전부 환불
+			buyReceiptPool[s.buyReceiptIdx].curAmount += s.amount;
+			totalRefundAmount += s.amount;
+		}
+		numOfProducts[nowProductIdx] += totalRefundAmount; // 환불한 총 개수만큼 환불 대상 상품 재고에 더해줌
+		return totalRefundAmount;
 	}
 }
